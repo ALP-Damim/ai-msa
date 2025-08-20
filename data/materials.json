@@ -1,0 +1,18 @@
+[
+	{
+		"material_id": "mat-001",
+		"subject": "math",
+		"grade": "3",
+		"title": "Multiplication Basics",
+		"content": "Multiplication is repeated addition. For example, 3 x 4 means adding 3 four times. Practice multiplication tables helps speed."
+	},
+	{
+		"material_id": "mat-002",
+		"subject": "korean",
+		"grade": "3",
+		"title": "Reading Comprehension",
+		"content": "Reading carefully means identifying who, what, when, where, and why. Underline key words and summarize the main idea."
+	}
+]
+
+

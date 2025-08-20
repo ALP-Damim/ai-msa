@@ -1,0 +1,23 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_service
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  ai:
+    build: .
+    depends_on:
+      - postgres
+    env_file: .env
+    ports:
+      - "8000:8000"
+volumes:
+  pgdata:
+
+
