@@ -25,8 +25,10 @@ test:
 	. .venv/bin/activate && pytest -q --disable-warnings --maxfail=1
 
 k8s-stage:
+	kubectl create secret generic ai-env --from-env-file=.env --dry-run=client -o yaml | kubectl apply -f -
 	kubectl apply -f k8s/ai-deployment.yaml
 
 k8s-prod:
+	kubectl create secret generic ai-env --from-env-file=.env --dry-run=client -o yaml | kubectl apply -f -
 	kubectl apply -f k8s/prod/ai-deployment.yaml
 

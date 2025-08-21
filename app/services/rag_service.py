@@ -43,21 +43,62 @@ def search_with_evidence(query: str, material_ids: List[str], k: int = 5, subjec
 	coll = _materials_collection()
 	index_name = _get_index_name()
 
+	def _subject_candidates(s: str) -> List[str]:
+		s0 = (s or "").strip()
+		s_l = s0.lower()
+		eng_to_kor = {
+			"korean": "국어",
+			"english": "영어",
+			"math": "수학",
+			"science": "과학",
+		}
+		kor_to_eng = {v: k for k, v in eng_to_kor.items()}
+		aliases = {
+			"ko": "korean",
+			"kor": "korean",
+			"en": "english",
+			"eng": "english",
+			"mat": "math",
+			"sci": "science",
+		}
+		cands = {s0, s_l}
+		canon_eng = aliases.get(s_l, s_l)
+		if canon_eng in eng_to_kor:
+			cands.add(canon_eng)
+			cands.add(eng_to_kor[canon_eng])
+		if s0 in kor_to_eng:
+			cands.add(kor_to_eng[s0])
+		return list(cands)
+
+	# Build search pipeline
 	pipeline: List[Dict[str, Any]] = [
 		{"$search": {"index": index_name, "knnBeta": {"vector": vec, "path": "vector", "k": max(int(k), 1)}}},
 	]
-	match: Dict[str, Any] = {}
+
+	conditions: List[Dict[str, Any]] = []
 	if material_ids:
-		match.setdefault("$or", []).extend([
-			{"material_id": {"$in": material_ids}},
-			{"parent_id": {"$in": material_ids}},
-		])
+		conditions.append({
+			"$or": [
+				{"material_id": {"$in": material_ids}},
+				{"parent_id": {"$in": material_ids}},
+			]
+		})
 	if subject:
-		match["subject"] = subject
+		conditions.append({"subject": {"$in": _subject_candidates(subject)}})
 	if grade:
-		match["grade"] = grade
-	if match:
-		pipeline.append({"$match": match})
+		# Documents may store grade as int or string; match both safely
+		try:
+			g_int = int(str(grade).strip())
+		except Exception:
+			g_int = None
+		g_str = str(grade).strip()
+		grade_or = [{"grade": g_str}]
+		if g_int is not None:
+			grade_or.append({"grade": g_int})
+		conditions.append({"$or": grade_or})
+
+	if conditions:
+		pipeline.append({"$match": {"$and": conditions}})
 
 	pipeline.extend([
 		{"$limit": k},
