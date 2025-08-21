@@ -114,7 +114,7 @@ def create_app() -> Flask:
 		from .services.schemas import EvaluateBatchRequest
 		payload = EvaluateBatchRequest.model_validate(request.get_json(force=True) or {})
 		replies = []
-		n = min(len(payload.questions), len(payload.answers), len(payload.studentAnswers), len(payload.scores))
+		n = min(len(payload.questions), len(payload.answers), len(payload.studentAnswers))
 		for i in range(n):
 			res = llm_service.generate_evaluation_and_advice(
 				student_id=payload.studentId or "",
@@ -124,24 +124,29 @@ def create_app() -> Flask:
 				question=payload.questions[i],
 				answer_key=str(payload.answers[i]),
 				student_answer=str(payload.studentAnswers[i]),
-				score=int(payload.scores[i]),
+				score=int(payload.score),
 				material_ids=payload.materialIds,
 			)
 			replies.append(res)
 		return jsonify({"status": "OK", "items": replies}), 200
 
 	# ----- External agreed URLs mapping -----
-	# AI 학습 조언
+	# AI 학습 조언(시험 단위, DB 조회 → RAG → 조언) + submissions.feedback 저장(기존 null일 때만)
 	@app.post("/api/exams/<string:exam_id>/ai/advice")
 	def advice_for_exam(exam_id: str):
-		payload = AdviceRequest.model_validate(request.get_json(force=True) or {})
+		payload = request.get_json(force=True) or {}
+		student_id = payload.get("studentId")
+		if not student_id:
+			return jsonify({"error": "studentId required"}), 400
 		with LATENCY.labels("/api/exams/:id/ai/advice").time():
-			result = llm_service.generate_advice(student_id=payload.studentId, subject=payload.subject, grade=payload.grade, score=payload.score)
+			result = llm_service.generate_exam_advice_from_db(student_id=student_id, exam_id=exam_id)
 			REQUESTS.labels("/api/exams/:id/ai/advice", result.get("status", "OK")).inc()
-			# 표준 응답 형태: [{title, body}]
 			if result.get("status") == "OK":
-				return jsonify([{"title": "학습 조언", "body": result.get("advice", "")}]), 200
-			return jsonify([]), 202
+				# Try to persist into submissions.feedback if currently NULL
+				from .services.db_service import set_submission_feedback_if_null
+				stored = set_submission_feedback_if_null(student_id=student_id, exam_id=exam_id, feedback_text=result.get("advice", ""))
+				return jsonify({"status": "OK", "stored": stored}), 200
+			return jsonify({"status": "PENDING"}), 202
 
 	# 문항 단위 피드백
 	@app.post("/api/exams/<string:exam_id>/answers/<string:answer_id>/ai/feedback")

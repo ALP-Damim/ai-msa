@@ -7,9 +7,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from openai import AzureOpenAI
 
 from .config import load_azure_settings, resolve_azure_openai_credentials
-from .db_service import get_session, AIAdvice, AIFeedback
+from .db_service import get_session, AIAdvice, AIFeedback, get_exam_context
 from .rag_service import search_with_evidence
-from .prompts import build_rubric_prompt
+from .prompts import build_rubric_prompt, build_exam_advice_prompt
 
 
 def _make_client() -> AzureOpenAI:
@@ -126,3 +126,35 @@ def generate_evaluation_and_advice(student_id: str, exam_id: str, subject: str, 
 		}
 	except Exception:
 		return {"status": "PENDING", "studentId": student_id, "examId": exam_id}
+
+
+def generate_exam_advice_from_db(student_id: str, exam_id: str) -> Dict[str, Any]:
+	"""Load exam context from DB and produce Korean advice with RAG support."""
+	ctx = get_exam_context(student_id=student_id, exam_id=exam_id)
+	subject = ctx.get("subject") or ""
+	grade = ctx.get("grade") or ""
+	score = ctx.get("score", 0)
+	student_name = ctx.get("studentName") or "학생"
+	# Build composite query from incorrect items (use stems)
+	stems: List[str] = []
+	for it in ctx.get("items", []):
+		if it.get("correct") is False:
+			stem = it.get("stem") or ""
+			stems.append(stem[:120])
+	query = " \n".join(stems[:5]) or f"{subject} {grade}학년 학습 조언"
+	evidences = search_with_evidence(query=query, material_ids=[], k=5, subject=subject, grade=str(grade) if grade else None)
+	# Use full exam items and optional evidences in prompt
+	prompt = build_exam_advice_prompt(subject or "", str(grade or ""), student_name, int(score), ctx.get("items", []), evidences)
+	resp = _chat(prompt)
+	text = resp["text"].replace("학생", student_name)
+	with get_session() as s:
+		rec = AIAdvice(
+			student_id=student_id,
+			subject=subject or "",
+			grade=str(grade or ""),
+			score=int(score),
+			advice_text=text,
+		)
+		s.add(rec)
+		s.commit()
+	return {"status": "OK", "studentId": student_id, "examId": exam_id, "advice": text, "evidence": evidences}

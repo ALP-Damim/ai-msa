@@ -17,17 +17,31 @@ spec:
       containers:
         - name: ai
           image: YOUR_REGISTRY/msa-ai:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
           envFrom:
             - secretRef:
                 name: ai-env
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
           readinessProbe:
             httpGet:
               path: /readyz
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
 ---
 apiVersion: v1
 kind: Service
